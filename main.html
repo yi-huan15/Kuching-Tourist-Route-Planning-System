@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kuching Tourist Route Planner</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+    <div>
+        <span>Sarawak · Malaysia</span>
+        <h1>Kuching Tourist<br>Route Planner</h1>
+    </div>
+</header>
+
+<div class="app-body">
+
+    <!-- ── SIDEBAR ── -->
+    <aside class="sidebar">
+        <div class="controls">
+
+            <div class="control-group">
+                <label>Starting Point</label>
+                <select id="startSelect">
+                    <option value="0">🏨 Waterfront Hotel</option>
+                    <option value="9">🏨 Sheraton Hotel</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label>Start Travel From</label>
+                <select id="areaSelect">
+                    <option value="south">South Bank</option>
+                    <option value="north">North Bank</option>
+                    <option value="both">Random</option>
+                </select>
+            </div>
+
+            <!-- TIME RANGE -->
+            <div class="control-group">
+                <div class="time-range-box">
+                    <div class="time-range-header">
+                        <span>Trip Duration</span>
+                        <span class="day-badge" id="dayBadge">1 Day</span>
+                    </div>
+                    <input type="range" id="daysSlider" min="1" max="3" value="1" oninput="updateDayBadge()">
+                    <div class="range-labels"><span>1 day</span><span>3 days</span></div>
+
+                    <div class="hours-row" style="margin-top: 12px;">
+                        <label>Hours/day available:</label>
+                        <input type="number" id="hoursPerDay" value="8" min="2" max="14" step="1">
+                    </div>
+                    <div class="hours-row">
+                        <label>Avg. visit time (min/stop):</label>
+                        <input type="number" id="minsPerStop" value="60" min="15" max="180" step="15">
+                    </div>
+                </div>
+            </div>
+
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="generateOptimalTour()">Generate Tour</button>
+                <button class="btn btn-secondary" onclick="clearRoute()">Clear</button>
+            </div>
+        </div>
+
+        <!-- RESULTS -->
+        <div class="result-panel" id="resultPanel">
+            <div class="result-placeholder" id="placeholder">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                    <circle cx="12" cy="10" r="3"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+                </svg>
+                <p>Set your preferences and click <strong>Generate Tour</strong> to plan your Kuching itinerary.</p>
+            </div>
+            <div id="routeContent" style="display:none;"></div>
+        </div>
+    </aside>
+
+    <!-- ── MAP ── -->
+    <div class="map-wrapper">
+        <div id="map"></div>
+
+        <!-- Inline location detail panel -->
+        <div id="loc-panel">
+            <div class="loc-panel-top">
+                <div class="loc-panel-emoji" id="lp-emoji">🏛️</div>
+                <div class="loc-panel-name" id="lp-name">Location Name</div>
+                <button class="loc-panel-close" onclick="closeLocPanel()">✕</button>
+            </div>
+            <div class="loc-panel-body">
+                <div class="loc-panel-time" id="lp-time"></div>
+                <div class="loc-panel-desc" id="lp-desc"></div>
+                <div class="loc-panel-tags" id="lp-tags"></div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ─────────────────────────────────────────────
+//  DATA
+// ─────────────────────────────────────────────
+const points = [
+    "Waterfront Hotel",
+    "Kuching Waterfront",
+    "India Street",
+    "Carpenter Street",
+    "Borneo Cultures Museum",
+    "The Astana",
+    "State Legislative Assembly Building",
+    "Brooke Gallery",
+    "Chinese History Museum",
+    "Sheraton Hotel"
+];
+
+const locationData = [
+    {
+        emoji: "🏨",
+        desc: "Your home base for the trip — located steps from the scenic Sarawak River with easy access to the waterfront promenade.",
+        tags: ["Hotel", "River View", "Starting Point"],
+        visitTime: null
+    },
+    {
+        emoji: "🌊",
+        desc: "Kuching's beloved promenade stretching along the Sarawak River. Lined with heritage buildings, food stalls, and panoramic views of the Astana across the water. Best visited at golden hour.",
+        tags: ["Promenade", "Heritage", "Food Stalls", "River"],
+        visitTime: "~60 min"
+    },
+    {
+        emoji: "🕌",
+        desc: "A vibrant historic street with Indian textile shops, banana leaf restaurants, and the beautiful Sri Mahamariamman Temple dating to the 1800s. A sensory feast of colour and culture.",
+        tags: ["Culture", "Shopping", "Temple", "Food"],
+        visitTime: "~45 min"
+    },
+    {
+        emoji: "🏺",
+        desc: "One of Kuching's oldest streets, featuring pre-war shophouses, antique dealers, and the iconic Tua Pek Kong Temple. A window into the city's multi-ethnic heritage.",
+        tags: ["Heritage", "Antiques", "Architecture", "Temple"],
+        visitTime: "~45 min"
+    },
+    {
+        emoji: "🏛️",
+        desc: "Sarawak's premier museum dedicated to the rich cultures of Borneo's indigenous peoples. Stunning architecture with immersive exhibits on the Iban, Bidayuh, Orang Ulu, and more.",
+        tags: ["Museum", "Indigenous Culture", "Architecture"],
+        visitTime: "~90 min"
+    },
+    {
+        emoji: "🏰",
+        desc: "The official residence of the Yang di-Pertua Negeri (Governor) of Sarawak. Built in 1870 by the second White Rajah, this white colonial palace is best viewed from across the river.",
+        tags: ["Colonial", "Palace", "Historical", "North Bank"],
+        visitTime: "~30 min"
+    },
+    {
+        emoji: "🏛️",
+        desc: "Sarawak's iconic legislative building, a striking modernist structure with a distinctive domed roof. The surrounding gardens and river views make it a great photography spot.",
+        tags: ["Government", "Architecture", "Photography", "North Bank"],
+        visitTime: "~30 min"
+    },
+    {
+        emoji: "🎨",
+        desc: "A fascinating museum dedicated to the history of the Brooke family — the White Rajahs who ruled Sarawak for over a century. Housed in the beautifully restored Fort Margherita.",
+        tags: ["Museum", "White Rajahs", "Fort", "History"],
+        visitTime: "~60 min"
+    },
+    {
+        emoji: "🏮",
+        desc: "Chronicles the history and contributions of the Chinese community in Sarawak. Located in the Old Courthouse building on the waterfront, it holds fascinating artifacts and photographs.",
+        tags: ["Museum", "Chinese Heritage", "Waterfront", "History"],
+        visitTime: "~45 min"
+    },
+    {
+        emoji: "🏨",
+        desc: "A towering new landmark in Kuching's 'Golden Triangle,' offering luxury accommodations and an iconic rooftop presence near the city center.",
+        tags: ["Luxury Hotel", "City Landmark", "Starting Point"],
+        visitTime: null
+    }
+];
+
+const distances = [
+    // 0      1      2      3      4      5      6      7      8      9 (Sheraton)
+    [ 0.0,   0.3,   0.2,   0.4,   0.6,   4.2,   4.4,   4.3,   0.8,   1.3 ], // 0. Waterfront Hotel
+    [ 0.3,   0.0,   0.4,   0.2,   0.8,   4.0,   4.2,   4.1,   0.5,   1.0 ], // 1. Kuching Waterfront
+    [ 0.2,   0.4,   0.0,   0.3,   0.5,   4.4,   4.6,   4.5,   0.9,   1.4 ], // 2. India Street
+    [ 0.4,   0.2,   0.3,   0.0,   0.6,   4.1,   4.3,   4.2,   0.4,   0.9 ], // 3. Carpenter Street
+    [ 0.6,   0.8,   0.5,   0.6,   0.0,   4.7,   5.1,   4.9,   1.2,   1.7 ], // 4. Borneo Cultures Museum
+    [ 4.2,   4.0,   4.4,   4.1,   4.7,   0.0,   0.4,   0.8,   4.2,   4.7 ], // 5. The Astana
+    [ 4.4,   4.2,   4.6,   4.3,   5.1,   0.4,   0.0,   0.4,   3.7,   4.2 ], // 6. State Legislative Assembly (Updated)
+    [ 4.3,   4.1,   4.5,   4.2,   4.9,   0.8,   0.4,   0.0,   3.5,   4.0 ], // 7. Brooke Gallery
+    [ 0.8,   0.5,   0.9,   0.4,   1.2,   4.2,   3.7,   3.5,   0.0,   0.5 ], // 8. Chinese History Museum
+    [ 1.3,   1.0,   1.4,   0.9,   1.7,   4.7,   4.2,   4.0,   0.5,   0.0 ]  // 9. Sheraton Hotel
+];
+
+const coordinates = [
+    [1.5593, 110.3444], // 0. Waterfront Hotel
+    [1.5587, 110.3475], // 1. Kuching Waterfront (Centered on the promenade)
+    [1.5588, 110.3438], // 2. India Street
+    [1.5583, 110.3465], // 3. Carpenter Street
+    [1.5555, 110.3424], // 4. Borneo Cultures Museum (Moved slightly west onto the building)
+    [1.5601, 110.3456], // 5. The Astana (Moved south into the river for the jetty/viewpoint)
+    [1.5615, 110.3479], // 6. State Legislative Assembly Building
+    [1.5600, 110.3491], // 7. Brooke Gallery (Centered on Fort Margherita)
+    [1.5575, 110.3496], // 8. Chinese History Museum
+    [1.5565, 110.3515]  // 9. Sheraton Hotel
+];
+
+const DRIVE_SPEED = 50; // km/h for city driving
+
+// ─────────────────────────────────────────────
+//  TIME RANGE UI
+// ─────────────────────────────────────────────
+function updateDayBadge() {
+    const v = document.getElementById('daysSlider').value;
+    document.getElementById('dayBadge').textContent = v == 1 ? '1 Day' : `${v} Days`;
+}
+
+// ─────────────────────────────────────────────
+//  TSP
+// ─────────────────────────────────────────────
+function getPermutations(arr) {
+    if (arr.length === 0) return [[]];
+    const result = [];
+    for (let i = 0; i < arr.length; i++) {
+        const rest = arr.slice(0, i).concat(arr.slice(i + 1));
+        for (const perm of getPermutations(rest)) result.push([arr[i], ...perm]);
+    }
+    return result;
+}
+
+// ─────────────────────────────────────────────
+//  ITINERARY BUILDER
+// ─────────────────────────────────────────────
+function buildItinerary(orderedStops, startIdx, totalDays, hoursPerDay, minsPerStop) {
+    const segments = [];
+    for (let i = 0; i < orderedStops.length; i++) {
+        const from = i === 0 ? startIdx : orderedStops[i - 1];
+        const to = orderedStops[i];
+        const travelMin = Math.round((distances[from][to] / DRIVE_SPEED) * 60); 
+        // Add the distance value here
+        segments.push({ stop: to, travelMin, visitMin: minsPerStop, dist: distances[from][to] });
+    }
+
+    const minutesPerDay = hoursPerDay * 60;
+    const days = [];
+    let dayMinutes = 0;
+    let currentDay = { day: 1, stops: [], totalMin: 0, totalDist: 0 }; // Initialize totalDist
+
+    for (const seg of segments) {
+        const needed = seg.travelMin + seg.visitMin;
+        if (dayMinutes + needed > minutesPerDay && currentDay.stops.length > 0) {
+            days.push(currentDay);
+            currentDay = { day: days.length + 1, stops: [], totalMin: 0, totalDist: 0 };
+            dayMinutes = 0;
+        }
+        currentDay.stops.push(seg);
+        currentDay.totalMin += needed;
+        currentDay.totalDist += seg.dist; // Accumulate distance
+        dayMinutes += needed;
+    }
+    if (currentDay.stops.length > 0) days.push(currentDay);
+    return days;
+}
+
+function formatMinutes(mins) {
+    if (mins < 60) return `${mins} min`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m === 0 ? `${h}h` : `${h}h ${m}min`;
+}
+
+// ─────────────────────────────────────────────
+//  GENERATE TOUR
+// ─────────────────────────────────────────────
+function generateOptimalTour() {
+    const start = parseInt(document.getElementById('startSelect').value);
+    const sequence = document.getElementById('areaSelect').value;
+
+    // 1. RESTORE DYNAMIC USER INPUTS (Delete the hardcoded 3, 6, and 90)
+    const days = parseInt(document.getElementById('daysSlider').value);
+    const hoursPerDay = parseFloat(document.getElementById('hoursPerDay').value) || 8;
+    const minsPerStop = parseInt(document.getElementById('minsPerStop').value) || 60;
+    const filteredDest = [1, 2, 3, 4, 5, 6, 7, 8]; // Always 8 points
+
+    let minDist = Infinity;
+    let bestPath = [];
+    let areaLabel;
+
+    // 2. ROUTING LOGIC
+    if (sequence === 'random' || sequence === 'both') {
+        // --- BRUTE FORCE MODE (BOTH BANKS) ---
+        areaLabel = "Mixed (Best Overall)";
+        
+        const allPerms = getPermutations(filteredDest);
+        for (const perm of allPerms) {
+            let d = distances[start][perm[0]];
+            for (let i = 0; i < perm.length - 1; i++) {
+                d += distances[perm[i]][perm[i+1]];
+            }
+            d += distances[perm[perm.length - 1]][start]; // Return to hotel
+            
+            if (d < minDist) {
+                minDist = d;
+                bestPath = perm;
+            }
+        }
+
+    } else {
+        // --- DIVIDE AND CONQUER MODE ---
+        const southBankPoints = [1, 2, 3, 4, 8];
+        const northBankPoints = [5, 6, 7];
+        let firstSubset, secondSubset;
+
+        // Determine the order based on user selection
+        if (sequence === 'north') {
+            firstSubset = northBankPoints;
+            secondSubset = southBankPoints;
+            areaLabel = "North Bank First";
+        } else { 
+            // Default to South Bank first
+            firstSubset = southBankPoints;
+            secondSubset = northBankPoints;
+            areaLabel = "South Bank First";
+        }
+
+        const permsFirst = getPermutations(firstSubset);
+        const permsSecond = getPermutations(secondSubset);
+
+        // Combine the subsets
+        for (const p1 of permsFirst) {
+            for (const p2 of permsSecond) {
+                let d = distances[start][p1[0]]; 
+                
+                for (let i = 0; i < p1.length - 1; i++) {
+                    d += distances[p1[i]][p1[i+1]];
+                }
+                d += distances[p1[p1.length - 1]][p2[0]]; // Cross river
+                for (let i = 0; i < p2.length - 1; i++) {
+                    d += distances[p2[i]][p2[i+1]];
+                }
+                d += distances[p2[p2.length - 1]][start]; // Return to hotel
+                
+                if (d < minDist) {
+                    minDist = d;
+                    bestPath = [...p1, ...p2];
+                }
+            }
+        }
+    }
+
+    const itinerary = buildItinerary(bestPath, start, days, hoursPerDay, minsPerStop);
+    const totalMin = Math.round((minDist / DRIVE_SPEED) * 60) + filteredDest.length * minsPerStop;
+    const actualDays = itinerary.length;
+
+    // ── RENDER RESULT ──
+    const placeholder = document.getElementById('placeholder');
+    const routeContent = document.getElementById('routeContent');
+    placeholder.style.display = 'none';
+    routeContent.style.display = 'block';
+
+    const dayWord = actualDays === 1 ? 'day' : 'days';
+
+    // RESTORE DYNAMIC WARNING MESSAGES
+    let overflowNote = '';
+    if (actualDays > days) {
+        overflowNote = `<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:8px 12px;font-size:0.78rem;color:#856404;margin:12px 20px 0;">
+            ⚠️ With ${hoursPerDay}h/day and ${minsPerStop} min/stop, your route fits best in <strong>${actualDays} days</strong>. Consider increasing daily hours or reducing stops.
+        </div>`;
+    } else if (actualDays < days) {
+        overflowNote = `<div style="background:#d1e7dd;border:1px solid #a3cfbb;border-radius:6px;padding:8px 12px;font-size:0.78rem;color:#0a3622;margin:12px 20px 0;">
+            ✅ You have extra time! This route fits comfortably in <strong>${actualDays} ${dayWord}</strong> — you'll have leisure time to explore further.
+        </div>`;
+    }
+
+    let html = `
+        <div class="route-summary">
+            <h2>🏛️ Your Kuching Itinerary</h2>
+            <div class="stat-chips">
+                <span class="chip accent">📅 ${actualDays} ${dayWord}</span>
+                <span class="chip">📍 ${filteredDest.length} stops</span>
+                <span class="chip">🚗 ${minDist.toFixed(1)} km total</span>
+                <span class="chip">⏱ ${hoursPerDay}h / day</span>
+                <span class="chip">🗺 ${areaLabel}</span>
+            </div>
+            <div style="font-size:0.78rem;color:#888;">Starting from: <strong>${points[start]}</strong></div>
+        </div>
+        ${overflowNote} 
+    `;
+
+    itinerary.forEach(day => {
+        const stopsNames = day.stops.map(s => points[s.stop]);
+        html += `
+        <div class="day-block">
+            <div class="day-header">
+                <div class="day-num">D${day.day}</div>
+                <div>
+                    <div class="day-title">Day ${day.day}</div>
+                    <div style="font-size:0.7rem;color:#aaa;">${day.stops.length} attraction${day.stops.length > 1 ? 's' : ''}</div>
+                </div>
+                <div class="day-meta">${day.totalDist.toFixed(1)} km · ${formatMinutes(day.totalMin)}</div>
+            </div>
+            <ul class="stop-list">
+                <li class="stop-item">
+                    <div class="stop-num hotel">🏨</div>
+                    <div class="stop-info">
+                        <div class="stop-name">${points[start]}</div>
+                        <div class="stop-time">Departure</div>
+                    </div>
+                </li>
+        `;
+        day.stops.forEach((seg, i) => {
+            const ld = locationData[seg.stop];
+            html += `
+                <li class="stop-item">
+                    <div class="stop-num">${i + 1}</div>
+                    <div class="stop-info">
+                        <div class="stop-name">${ld.emoji} ${points[seg.stop]}</div>
+                        <div class="stop-time">Drive ${formatMinutes(seg.travelMin)} · Visit ~${formatMinutes(seg.visitMin)}</div> </div>
+                </li>
+            `;
+        });
+        html += `
+                <li class="stop-item">
+                    <div class="stop-num hotel">🏨</div>
+                    <div class="stop-info">
+                        <div class="stop-name">${points[start]}</div>
+                        <div class="stop-time">Return to hotel</div>
+                    </div>
+                </li>
+            </ul>
+        </div>`;
+    });
+
+    routeContent.innerHTML = html;
+
+    // Draw map
+    drawRoute([start, ...bestPath, start]);
+}
+
+// ─────────────────────────────────────────────
+//  MAP
+// ─────────────────────────────────────────────
+let map, routeLayer;
+const markerRefs = {};      // permanent place markers (keyed by point index)
+let labelLayers = [];       // temporary order-number labels added by drawRoute
+
+function addPlaceMarkers() {
+    points.forEach((name, idx) => {
+        const ld = locationData[idx];
+        const isHotel = idx === 0 || idx === 9;
+        const color = isHotel ? '#4a6741' : '#b84c30';
+
+        const icon = L.divIcon({
+            className: '',
+            html: `<div style="
+                width:36px;height:36px;border-radius:50%;
+                background:${color};border:3px solid white;
+                box-shadow:0 2px 8px rgba(0,0,0,0.3);
+                display:flex;align-items:center;justify-content:center;
+                font-size:16px;cursor:pointer;
+            ">${ld.emoji}</div>`,
+            iconSize: [36, 36],
+            iconAnchor: [18, 18]
+        });
+
+        const marker = L.marker(coordinates[idx], { icon }).addTo(map);
+        marker.on('click', () => showLocPanel(idx));
+        markerRefs[idx] = marker;
+    });
+}
+
+function initMap() {
+    map = L.map('map', { zoomControl: true }).setView([1.557, 110.350], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    addPlaceMarkers();
+}
+
+function showLocPanel(idx) {
+    const ld = locationData[idx];
+    document.getElementById('lp-emoji').textContent = ld.emoji;
+    document.getElementById('lp-name').textContent = points[idx];
+    document.getElementById('lp-desc').textContent = ld.desc;
+
+    const timeEl = document.getElementById('lp-time');
+    if (ld.visitTime) {
+        timeEl.innerHTML = `⏱ Suggested visit: ${ld.visitTime}`;
+        timeEl.style.display = 'flex';
+    } else {
+        timeEl.style.display = 'none';
+    }
+
+    const tagsEl = document.getElementById('lp-tags');
+    tagsEl.innerHTML = ld.tags.map(t => `<span class="loc-tag">${t}</span>`).join('');
+
+    document.getElementById('loc-panel').classList.add('open');
+}
+
+function closeLocPanel() {
+    document.getElementById('loc-panel').classList.remove('open');
+}
+
+function clearLabelLayers() {
+    labelLayers.forEach(l => map.removeLayer(l));
+    labelLayers = [];
+}
+
+function drawRoute(routePath) {
+    // 1. Remove previous route line + order labels + distance labels
+    if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+    clearLabelLayers(); // This array now tracks distance labels too
+
+    const coords = routePath.map(i => coordinates[i]);
+    
+    // 2. Draw the Polyline
+    routeLayer = L.polyline(coords, {
+        color: '#b84c30',
+        weight: 4,
+        opacity: 0.75,
+        dashArray: '8 6'
+    }).addTo(map);
+
+    // 3. Add Step Numbers and Distance Labels
+    routePath.forEach((pidx, order) => {
+        // --- Logic for Distance Labels (Between Points) ---
+        if (order < routePath.length - 1) {
+            const nextIdx = routePath[order + 1];
+            const dist = distances[pidx][nextIdx];
+            
+            // Calculate midpoint for the distance label
+            const midLat = (coordinates[pidx][0] + coordinates[nextIdx][0]) / 2;
+            const midLng = (coordinates[pidx][1] + coordinates[nextIdx][1]) / 2;
+
+            const distLabel = L.divIcon({
+                className: 'dist-label-container', // Custom class for clarity
+                html: `<div style="
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: white;
+                    color: #b84c30;
+                    border: 2px solid #b84c30;
+                    border-radius: 8px;
+                    padding: 4px 10px;
+                    font-size: 0.70rem;
+                    font-weight: 800;
+                    white-space: nowrap;
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                    transform: translate(-50%, -50%);
+                    min-width: fit-content;
+                ">${dist.toFixed(1)} km</div>`,
+                iconSize: null, // Setting to null prevents Leaflet from forcing a small square box
+                iconAnchor: [0, 0] 
+            });
+
+            const dm = L.marker([midLat, midLng], { icon: distLabel }).addTo(map);
+            labelLayers.push(dm);
+        }
+
+        // --- Logic for Stop Numbers (Existing) ---
+        if (order > 0 && order < routePath.length - 1) {
+            const label = L.divIcon({
+                className: '',
+                html: `<div style="
+                    width:20px;height:20px;border-radius:50%;
+                    background:#b84c30;color:white;
+                    font-size:0.65rem;font-weight:700;
+                    display:flex;align-items:center;justify-content:center;
+                    border:2px solid white;
+                    box-shadow:0 1px 4px rgba(0,0,0,0.3);
+                    transform:translate(-10px,-10px);
+                ">${order}</div>`,
+                iconSize: [0, 0]
+            });
+            const lm = L.marker(coordinates[pidx], { icon: label }).addTo(map);
+            labelLayers.push(lm);
+        }
+    });
+
+    map.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
+}
+
+function clearRoute() {
+    // Remove route line and order-number labels only — NOT the place markers
+    if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+    clearLabelLayers();
+
+    document.getElementById('placeholder').style.display = 'flex';
+    document.getElementById('routeContent').style.display = 'none';
+    document.getElementById('routeContent').innerHTML = '';
+    closeLocPanel();
+    map.setView([1.557, 110.350], 15);
+    // NOTE: do NOT call initMap() here — the map instance already exists
+}
+
+window.onload = initMap;
+</script>
+</body>
+</html>
